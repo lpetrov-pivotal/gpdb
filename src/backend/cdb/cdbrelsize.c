@@ -34,9 +34,10 @@ struct relsize_cache_entry
 {
 	Oid	relOid;
 	int64 size;
+	int allSegs;
 };
 
-static struct relsize_cache_entry relsize_cache[relsize_cache_size] = { {0,0} };
+static struct relsize_cache_entry relsize_cache[relsize_cache_size] = { {0,0,0} };
 
 static int last_cache_entry = -1;		/* -1 for cache not initialized yet */
 
@@ -47,11 +48,17 @@ void clear_relsize_cache(void)
 	{
 		relsize_cache[i].relOid = InvalidOid;
 		relsize_cache[i].size = 0;
+		relsize_cache[i].allSegs = 0;
 	}
 	last_cache_entry = -1;
 }
 
 int64 cdbRelSize(Relation rel)
+{
+	return cdbRelSize2(rel, 0);
+}
+
+int64 cdbRelSize2(Relation rel, int allSegs)
 {
 	int64	size = 0;
 	int		i;
@@ -63,12 +70,16 @@ int64 cdbRelSize(Relation rel)
 	char	*schemaName;
 	char	*relName;	
 
+	elog(LOG, "cdbRelSize(): oid=%d %d", RelationGetRelid(rel), allSegs);
+
 	if (last_cache_entry  >= 0)
 	{
 		for (i=0; i < relsize_cache_size; i++)
 		{
-			if (relsize_cache[i].relOid == RelationGetRelid(rel))
+			if (relsize_cache[i].relOid == RelationGetRelid(rel) && relsize_cache[i].allSegs == allSegs) {
+				elog(LOG, "cdbRelSize: returning from cache %d -> %lld", RelationGetRelid(rel), relsize_cache[i].size);
 				return relsize_cache[i].size;
+			}
 		}
 	}
 
@@ -91,6 +102,8 @@ int64 cdbRelSize(Relation rel)
 	appendStringInfo(&buffer, "select pg_relation_size('%s.%s')",
 					 quote_identifier(schemaName), quote_identifier(relName));
 
+	elog(LOG, "cdbRelSize(): Dispatching '%s'", buffer.data);
+
 	/* 
 	 * In the future, it would be better to send the command to only one QE for the optimizer's needs,
 	 * but for ALTER TABLE, we need to be sure if the table has any rows at all.
@@ -104,10 +117,12 @@ int64 cdbRelSize(Relation rel)
 		pfree(errbuf.data);
 		pfree(buffer.data);
 		
+		elog(LOG, "cdbRelSize: oid=%d, returning %d", RelationGetRelid(rel), -1);
 		return -1;
 	}
 	else
 	{
+		elog(LOG, "cdbRelSize(): resultCount: %d", resultCount);
 										
 		for (i = 0; i < resultCount; i++)
 		{
@@ -127,8 +142,14 @@ int64 cdbRelSize(Relation rel)
 				{
 					int64 tempsize = 0;
 					(void) scanint8(PQgetvalue(results[i], j, 0), false, &tempsize);
-					if (tempsize > size)
-					 	size = tempsize;
+
+					if (allSegs == 1)
+						size += tempsize;
+					else
+						if (tempsize > size)
+					 		size = tempsize;
+
+					elog(LOG, "cdbRelSize(): tempsize=%lld, size=%lld", tempsize, size);
 				}
 			}
 		}
@@ -140,17 +161,24 @@ int64 cdbRelSize(Relation rel)
 			PQclear(results[i]);
 	
 		free(results);
+		elog(LOG, "cdbRelSize(): free results");
 	}
 
-	if (size >= 0)	/* Cache the size even if it is zero, as table might be empty */
+	if (size >= 0)  /* Cache the size even if it is zero, as table might be empty */
 	{
 		if (last_cache_entry < 0)
 			last_cache_entry = 0;
 
+		elog(LOG, "cdbRelSize(): caching data");
+
 		relsize_cache[last_cache_entry].relOid = RelationGetRelid(rel);
 		relsize_cache[last_cache_entry].size = size;
+		relsize_cache[last_cache_entry].allSegs = allSegs;
 		last_cache_entry = (last_cache_entry+1) % relsize_cache_size;
 	}
 
+	elog(LOG, "cdbRelSize: oid=%d, returning %lld", RelationGetRelid(rel), size);
+
 	return size;
 }
+

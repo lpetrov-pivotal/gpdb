@@ -17,6 +17,7 @@
 extern void clear_relsize_cache(void);
 
 extern int64 cdbRelSize(Relation rel);
+extern int64 cdbRelSize2(Relation rel, int allSegs);
 
 
 #endif /*CDBRELSIZE_H_*/
