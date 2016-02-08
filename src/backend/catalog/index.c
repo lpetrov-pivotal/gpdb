@@ -1255,6 +1255,8 @@ index_update_stats(Relation rel, bool hasindex, bool isprimary,
 	Form_pg_class rd_rel;
 	bool		dirty;
 
+	elog(LOG, "index_update_stats: relid=%d, reltuples=%f", relid, reltuples);
+
 	/*
 	 * We always update the pg_class row using a non-transactional,
 	 * overwrite-in-place update.  There are several reasons for this:
@@ -1355,22 +1357,26 @@ index_update_stats(Relation rel, bool hasindex, bool isprimary,
 		}
 	}
 
-	if (Gp_role != GP_ROLE_DISPATCH)
+	/* Update stats only on master, where we really care */
+	if (Gp_role == GP_ROLE_DISPATCH)
 	{
-		/**
-		 * Do not overwrite relpages, reltuples in QD.
-		 */
+		int64 cursize = 0;
+
 		if (rd_rel->reltuples != (float4) reltuples)
 		{
 			rd_rel->reltuples = (float4) reltuples;
 			dirty = true;
 		}
-		if (rd_rel->relpages != (int32) relpages)
+
+		cursize = cdbRelSize2(rel, 1 /* allSegs */);
+		if (cursize > 0 && rd_rel->relpages != cursize/BLCKSZ)
 		{
-			rd_rel->relpages = (int32) relpages;
+			rd_rel->relpages = cursize/BLCKSZ;
 			dirty = true;
 		}
+		elog(LOG, "index_update_stats(): cursize=%ld rd_rel->relpages=%ld pages=%ld", cursize, rd_rel->relpages, cursize/BLCKSZ);
 	}
+
 	/*
 	 * If anything changed, write out the tuple
 	 */
@@ -1461,7 +1467,7 @@ index_build(Relation heapRelation,
 					   isprimary,
 					   (heapRelation->rd_rel->relkind == RELKIND_TOASTVALUE) ?
 					   RelationGetRelid(indexRelation) : InvalidOid,
-					   stats->heap_tuples);
+					   heapRelation->rd_rel->reltuples);
 
 #if 0
 	/*
@@ -1488,7 +1494,7 @@ index_build(Relation heapRelation,
 					   false,
 					   false,
 					   InvalidOid,
-					   stats->index_tuples);
+					   heapRelation->rd_rel->reltuples);
 
 	/* Make the updated versions visible */
 	CommandCounterIncrement();
