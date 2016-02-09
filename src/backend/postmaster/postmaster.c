@@ -811,6 +811,7 @@ PostmasterMain(int argc, char *argv[])
 	char       *userDoption = NULL;
 	int			i;
 	char		stack_base;
+	bool       check_config_files_only = false;
 
 	COMPILE_ASSERT(ARRAY_SIZE(gPmStateLabels) == PM__ENUMERATION_COUNT);
 
@@ -861,7 +862,7 @@ PostmasterMain(int argc, char *argv[])
 	 * tcop/postgres.c (the option sets should not conflict) and with the
 	 * common help() function in main/main.c.
 	 */
-	while ((opt = getopt(argc, argv, "A:b:B:C:c:D:d:EeFf:h:ijk:lN:mM:nOo:Pp:r:S:sTt:UW:yx:z:-:")) != -1)
+	while ((opt = getopt(argc, argv, "A:b:B:C:c:D:d:EeFf:Gh:ijk:lN:mM:nOo:Pp:r:S:sTt:UW:yx:z:-:")) != -1)
 	{
 		switch (opt)
 		{
@@ -918,6 +919,10 @@ PostmasterMain(int argc, char *argv[])
 								 progname, optarg);
 					ExitPostmaster(1);
 				}
+				break;
+
+			case 'G':
+				check_config_files_only = true;
 				break;
 
 			case 'h':
@@ -1126,25 +1131,6 @@ PostmasterMain(int argc, char *argv[])
 		ExitPostmaster(2);
 
 	/*
-	 * CDB/MPP/GPDB: Set the processor affinity (may be a no-op on
-	 * some platforms). The port number is nice to use because we know
-	 * that different segments on a single host will not have the same
-	 * port numbers.
-	 *
-	 * We want to do this as early as we can -- so that the OS knows
-	 * about our binding, and all of our child processes will inherit
-	 * the same binding.
- 	 */
-	if (gp_set_proc_affinity)
-		setProcAffinity(PostPortNumber);
-
-	/* Verify that DataDir looks reasonable */
-	checkDataDir();
-
-	/* And switch working directory into it */
-	ChangeToDataDir();
-
-	/*
      * CDB: Decouple NBuffers from MaxBackends.  The entry db doesn't benefit
      * from buffers in excess of the global catalog size; this is typically
      * small and unrelated to the number of clients.  Segment dbs need enough
@@ -1171,6 +1157,27 @@ PostmasterMain(int argc, char *argv[])
 		write_stderr("%s: superuser_reserved_connections must be less than max_connections\n", progname);
 		ExitPostmaster(1);
 	}
+
+	/*
+	 * Load configuration files for client authentication.
+	 */
+	if (!load_hba())
+	{
+		/*
+		 * It makes no sense to continue if we fail to load the HBA file,
+		 * since there is no way to connect to the database in this case.
+		 */
+		write_stderr("could not load pg_hba.conf");
+		ExitPostmaster(3);
+	}
+	load_ident();
+
+	if (check_config_files_only)
+	{
+		write_stderr("Configuration files verified.");
+		ExitPostmaster(0);
+	}
+
 
     if ( GpIdentity.dbid == -1 && Gp_role == GP_ROLE_UTILITY)
     {
@@ -1223,6 +1230,25 @@ PostmasterMain(int argc, char *argv[])
 #ifdef HAVE_INT_OPTRESET
 	optreset = 1;				/* some systems need this too */
 #endif
+
+	/*
+	 * CDB/MPP/GPDB: Set the processor affinity (may be a no-op on
+	 * some platforms). The port number is nice to use because we know
+	 * that different segments on a single host will not have the same
+	 * port numbers.
+	 *
+	 * We want to do this as early as we can -- so that the OS knows
+	 * about our binding, and all of our child processes will inherit
+	 * the same binding.
+ 	 */
+	if (gp_set_proc_affinity)
+		setProcAffinity(PostPortNumber);
+
+	/* Verify that DataDir looks reasonable */
+	checkDataDir();
+
+	/* And switch working directory into it */
+	ChangeToDataDir();
 
 	/* For debugging: display postmaster environment */
 	{
@@ -1501,21 +1527,6 @@ PostmasterMain(int argc, char *argv[])
 	 * stderr.
 	 */
 	whereToSendOutput = DestNone;
-
-	/*
-	 * Load configuration files for client authentication.
-	 */
-	if (!load_hba())
-	{
-		/*
-		 * It makes no sense to continue if we fail to load the HBA file,
-		 * since there is no way to connect to the database in this case.
-		 */
-		ereport(FATAL,
-				(errmsg("could not load pg_hba.conf"),
-				 errOmitLocation(true)));
-	}
-	load_ident();
 
 
 	/* PostmasterRandom wants its own copy */

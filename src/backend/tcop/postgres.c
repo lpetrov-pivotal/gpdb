@@ -3787,7 +3787,7 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 	 * postmaster/postmaster.c (the option sets should not conflict)
 	 * and with the common help() function in main/main.c.
 	 */
-	while ((flag = getopt(argc, argv, "A:B:b:C:c:D:d:EeFf:h:ijk:m:lN:nOo:Pp:r:S:sTt:Uv:W:x:y:z:-:")) != -1)
+	while ((flag = getopt(argc, argv, "A:B:b:C:c:D:d:EeFf:Gh:ijk:m:lN:nOo:Pp:r:S:sTt:Uv:W:x:y:z:-:")) != -1)
 	{
 		switch (flag)
 		{
@@ -3831,6 +3831,10 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 			case 'f':
 				if (!set_plan_disabling_options(optarg, ctx, gucsource))
 					errs++;
+				break;
+
+			case 'G':
+				/* ignored - for consistency with postmaster */
 				break;
 
 			case 'h':
