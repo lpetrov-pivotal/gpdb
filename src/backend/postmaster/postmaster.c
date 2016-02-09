@@ -266,9 +266,10 @@ static pid_t StartupPID = 0,
 			AutoVacPID = 0,
 			PgArchPID = 0,
 			PgStatPID = 0,
-			SysLoggerPID = 0,
 			FilerepPID = 0,
 			FilerepPeerResetPID = 0;
+
+pid_t SysLoggerPID = 0; 	/* non-static - referred to by write_stderr() in elog.c */ 
 
 #define StartupPidsAllZero() (StartupPID == 0 || StartupPass2PID == 0 || StartupPass3PID == 0 || StartupPass4PID == 0)
 

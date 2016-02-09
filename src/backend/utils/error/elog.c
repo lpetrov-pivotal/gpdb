@@ -3919,6 +3919,7 @@ append_with_tabs(StringInfo buf, const char *str)
 	}
 }
 
+extern pid_t SysLoggerPID;
 
 /*
  * Write errors to stderr (or by equal means when stderr is
@@ -3934,7 +3935,7 @@ write_stderr(const char *fmt,...)
 
 	va_start(ap, fmt);
 
-	if (Redirect_stderr && gp_log_format == 1)
+	if (Redirect_stderr && gp_log_format == 1 && SysLoggerPID)
 	{
 		char		errbuf[2048];		/* Arbitrary size? */
 
