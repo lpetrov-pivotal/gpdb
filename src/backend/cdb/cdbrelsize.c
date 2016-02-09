@@ -34,10 +34,10 @@ struct relsize_cache_entry
 {
 	Oid	relOid;
 	int64 size;
-	int allSegs;
+	bool allSegs;
 };
 
-static struct relsize_cache_entry relsize_cache[relsize_cache_size] = { {0,0,0} };
+static struct relsize_cache_entry relsize_cache[relsize_cache_size] = { {0,0,false} };
 
 static int last_cache_entry = -1;		/* -1 for cache not initialized yet */
 
@@ -48,17 +48,17 @@ void clear_relsize_cache(void)
 	{
 		relsize_cache[i].relOid = InvalidOid;
 		relsize_cache[i].size = 0;
-		relsize_cache[i].allSegs = 0;
+		relsize_cache[i].allSegs = false;
 	}
 	last_cache_entry = -1;
 }
 
 int64 cdbRelSize(Relation rel)
 {
-	return cdbRelSize2(rel, 0);
+	return cdbRelSize2(rel, false);
 }
 
-int64 cdbRelSize2(Relation rel, int allSegs)
+int64 cdbRelSize2(Relation rel, bool allSegs)
 {
 	int64	size = 0;
 	int		i;
@@ -70,7 +70,7 @@ int64 cdbRelSize2(Relation rel, int allSegs)
 	char	*schemaName;
 	char	*relName;	
 
-	elog(LOG, "cdbRelSize(): oid=%d %d", RelationGetRelid(rel), allSegs);
+	elog(LOG, "cdbRelSize(): oid=%d %s", RelationGetRelid(rel), allSegs ? "allSegs" : "singleSeg");
 
 	if (last_cache_entry  >= 0)
 	{
@@ -143,7 +143,7 @@ int64 cdbRelSize2(Relation rel, int allSegs)
 					int64 tempsize = 0;
 					(void) scanint8(PQgetvalue(results[i], j, 0), false, &tempsize);
 
-					if (allSegs == 1)
+					if (allSegs)
 						size += tempsize;
 					else
 						if (tempsize > size)

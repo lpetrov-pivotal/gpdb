@@ -1368,7 +1368,7 @@ index_update_stats(Relation rel, bool hasindex, bool isprimary,
 			dirty = true;
 		}
 
-		cursize = cdbRelSize2(rel, 1 /* allSegs */);
+		cursize = cdbRelSize2(rel, true /* allSegs */);
 		if (cursize > 0 && rd_rel->relpages != cursize/BLCKSZ)
 		{
 			rd_rel->relpages = cursize/BLCKSZ;
