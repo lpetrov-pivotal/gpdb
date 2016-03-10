@@ -359,7 +359,8 @@ ResLockAcquire(LOCKTAG *locktag, ResPortalIncrement *incrementSet)
 	 * Check if the lock can be acquired (i.e. if the resource the lock and 
 	 * queue control is not exhausted). 
 	 */
-	status = ResLockCheckLimit(lock, proclock, incrementSet, true);
+	char msg[256];
+	status = ResLockCheckLimit(lock, proclock, incrementSet, true, msg, sizeof(msg));
 	if (status == STATUS_ERROR)
 	{
 		/*
@@ -389,9 +390,10 @@ ResLockAcquire(LOCKTAG *locktag, ResPortalIncrement *incrementSet)
 
 		LWLockRelease(ResQueueLock);
 		LWLockRelease(partitionLock);
+
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-				 errmsg("statement requires more resources than resource queue allows")));
+				 errmsg("statement requires more resources than resource queue allows: %s", msg)));
 	}
 	else if (status ==  STATUS_OK)
 	{
@@ -411,6 +413,8 @@ ResLockAcquire(LOCKTAG *locktag, ResPortalIncrement *incrementSet)
 	else
 	{
 		Assert(status == STATUS_FOUND);
+
+		elog(LOG, "statement over resource limit, will wait: %s", msg);
 
 		/*
 		 * The requested lock will exhaust the limit for this resource queue,
@@ -689,7 +693,7 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
  * them from freeing resources!
  */
 int
-ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, ResPortalIncrement *incrementSet, bool increment)
+ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, ResPortalIncrement *incrementSet, bool increment, char* msg, int msgSize)
 {
 	ResQueue		queue;
 	ResLimit		limits;
@@ -705,6 +709,10 @@ ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, ResPortalIncrement *incrementS
 	queue = GetResQueueFromLock(lock);
 	limits = queue->limits;
 	
+	char *msgPos = msg;
+	char *msgEnd = msg + msgSize;
+	msgPos += snprintf(msgPos, msgEnd-msgPos, "(ResQueue: %d) ", MyQueueId);
+
 	for (i = 0; i < NUM_RES_LIMIT_TYPES; i++)
 	{
 		/*
@@ -724,8 +732,10 @@ ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, ResPortalIncrement *incrementS
 				{
 					increment_amt = incrementSet->increments[i];
 
-					if (limits[i].current_value + increment_amt > limits[i].threshold_value)
+					if (limits[i].current_value + increment_amt > limits[i].threshold_value) {
 						over_limit = true;
+						msgPos += snprintf(msgPos, msgEnd-msgPos, "RES_COUNT_LIMIT current %.0f, limit %.0f slots taken ", limits[i].current_value, limits[i].threshold_value);
+					}
 				}
 				else
 				{
@@ -755,12 +765,15 @@ ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, ResPortalIncrement *incrementS
 					if (queue->overcommit)
 					{
 						/*
-						 * Autocommit is enabled, allow statements that
+						 * Overcommit is enabled, allow statements that
 						 * blowout the limit if noone else is active!
 						 */
 						if ((limits[i].current_value + increment_amt > limits[i].threshold_value) &&
-							(limits[i].current_value > 0.1))
-							over_limit = true;
+							(limits[i].current_value > 0.1)) 
+							{
+								over_limit = true;
+								msgPos += snprintf(msgPos, msgEnd-msgPos, "RES_COST_LIMIT requested %.0f, current %.0f, limit %.0f ", increment_amt, limits[i].current_value, limits[i].threshold_value);
+							}
 					} 
 					else
 					{
@@ -768,8 +781,10 @@ ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, ResPortalIncrement *incrementS
 						 * No autocommit, so always fail statements that
 						 * blowout the limit.
 						 */
-						if (limits[i].current_value + increment_amt > limits[i].threshold_value)
+						if (limits[i].current_value + increment_amt > limits[i].threshold_value) {
 							over_limit = true;
+							msgPos += snprintf(msgPos, msgEnd-msgPos, "RES_COST_LIMIT requested %.0f, current %.0f, limit %.0f ", increment_amt, limits[i].current_value, limits[i].threshold_value);
+						}
 					}
 				}
 				else
@@ -793,8 +808,10 @@ ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, ResPortalIncrement *incrementS
 				{
 					increment_amt = incrementSet->increments[i];
 
-					if (limits[i].current_value + increment_amt > limits[i].threshold_value)
+					if (limits[i].current_value + increment_amt > limits[i].threshold_value) {
 						over_limit = true;
+						msgPos += snprintf(msgPos, msgEnd-msgPos, "RES_MEMORY_LIMIT requested %.0f, current %.0f, limit %.0f ", increment_amt, limits[i].current_value, limits[i].threshold_value);
+					}
 				}
 				else
 				{
@@ -1200,7 +1217,8 @@ ResProcLockRemoveSelfAndWakeup(LOCK *lock)
 		 * See if it is ok to wake this guy. (note that the wakeup
 		 * writes to the wait list, and gives back a *new* next proc).
 		 */
-		status = ResLockCheckLimit(lock, (PROCLOCK *) proc->waitProcLock, incrementSet, true);
+		char msg[256];
+		status = ResLockCheckLimit(lock, (PROCLOCK *) proc->waitProcLock, incrementSet, true, msg, sizeof(msg));
 		if (status == STATUS_OK)
 		{
 			ResGrantLock(lock, (PROCLOCK *) proc->waitProcLock);

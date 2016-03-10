@@ -134,7 +134,8 @@ extern LockAcquireResult ResLockAcquire(LOCKTAG *locktag,
 extern bool				ResLockRelease(LOCKTAG *locktag, uint32 resPortalId);
 extern int				ResLockCheckLimit(LOCK *lock, PROCLOCK *proclock, 
 										  ResPortalIncrement *incrementSet,
-										  bool increment);
+										  bool increment,
+										  char* msg, int msgSize);
 extern ResQueue			GetResQueueFromLock(LOCK *lock);
 
 extern void				ResProcLockRemoveSelfAndWakeup(LOCK *lock);
