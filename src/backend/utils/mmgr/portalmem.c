@@ -379,6 +379,7 @@ PortalDrop(Portal portal, bool isTopCommit)
 	 */
 	PortalHashTableDelete(portal);
 
+	if (ResourceScheduler && ResourceQueueUseCost)
         ResUnLockPortal(portal);
 
 	/* let portalcmds.c clean up the state it knows about */

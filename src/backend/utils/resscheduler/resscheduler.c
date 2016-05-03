@@ -49,6 +49,7 @@ int		MaxResourcePortalsPerXact;				/* Max # tracked portals -
 												 * per backend . */
 bool	ResourceSelectOnly;						/* Only lock SELECT/DECLARE? */
 bool	ResourceCleanupIdleGangs;				/* Cleanup idle gangs? */
+bool	ResourceQueueUseCost;				/* Use Cost checking */
 
 
 /*
@@ -1083,5 +1084,93 @@ ResHandleUtilityStmt(Portal portal, Node *stmt)
 			portal->holdingResLock = ResLockUtilityPortal(portal, resQueue->ignorecostlimit);
 		}
 		portal->status = PORTAL_ACTIVE;
+	}
+}
+
+/*
+ * Pre lock the current slot in Resource Queue
+ */
+bool
+ResLockPrelock(ResPortalIncrement *incrementSet)
+{
+	bool returnReleaseOk = false;
+	LOCKTAG	tag;
+	Oid	queueid;
+	int32	lockResult = 0;
+
+	queueid = GetResQueueId();
+
+	Assert(incrementSet != NULL);
+	/*
+	* Check we have a valid queue before going any further.
+	*/
+	if (queueid != InvalidOid)
+	{
+		returnReleaseOk = true;
+
+		/*
+		* Get the resource lock.
+		*/
+#ifdef RESLOCK_DEBUG
+elog(DEBUG1, "acquire resource lock for queue %u (portal %u)",
+queueid, portal->portalId);
+#endif
+		SET_LOCKTAG_RESOURCE_QUEUE(tag, queueid);
+
+		PG_TRY();
+		{
+			lockResult = ResLockAcquire(&tag, incrementSet);
+		}
+		PG_CATCH();
+		{
+			/*
+			* We might have been waiting for a resource queue lock when we get
+			* here. Calling ResLockRelease without calling ResLockWaitCancel will
+			* cause the locallock to be cleaned up, but will leave the global
+			* variable lockAwaited still pointing to the locallock hash
+			* entry.
+			*/
+			ResLockWaitCancel();
+
+			/* Change status to no longer waiting for lock */
+			pgstat_report_waiting(PGBE_WAITING_NONE);
+
+			/* If we had acquired the resource queue lock, release it and clean up */
+			ResLockRelease(&tag, -1);
+
+			PG_RE_THROW();
+		}
+		PG_END_TRY();
+
+		Assert((lockResult != LOCKACQUIRE_NOT_AVAIL));
+	}
+
+	return returnReleaseOk;
+}
+
+/*
+ * Pre release the currently locked Resource Queue slot
+*/
+void
+ResLockPreUnlock()
+{
+	LOCKTAG tag;
+	Oid     queueid;
+
+	queueid = GetResQueueId();
+
+	/*
+	 * Check we have a valid queue before going any further.
+	*/
+	if (queueid != InvalidOid)
+	{
+		SET_LOCKTAG_RESOURCE_QUEUE(tag, queueid);
+
+	#ifdef RESLOCK_DEBUG
+			elog(DEBUG1, "release resource lock for queue %u",
+			queueid);
+	#endif
+
+		ResLockRelease(&tag, -1);
 	}
 }

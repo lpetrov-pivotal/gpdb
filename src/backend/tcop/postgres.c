@@ -85,6 +85,7 @@
 #include "cdb/cdbdisp.h"
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbgang.h"
+#include "cdb/memquota.h"
 #include "cdb/ml_ipc.h"
 #include "utils/guc.h"
 #include "access/twophase.h"
@@ -1542,6 +1543,8 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 	bool		was_logged = false;
 	bool		isTopLevel = false;
 	char		msec_str[32];
+	ResPortalIncrement	incData;
+	bool takeLock = false;
 
 	if (Gp_role != GP_ROLE_EXECUTE)
 	{
@@ -1699,7 +1702,87 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 
 		/* If we got a cancel signal in parsing or prior command, quit */
 		CHECK_FOR_INTERRUPTS();
-		
+
+		/* Check if resource scheduling is enabled and process accordingly */
+		if (Gp_role == GP_ROLE_DISPATCH && !superuser() && ResourceScheduler && !ResourceQueueUseCost)
+		{
+			switch (nodeTag(parsetree))
+			{
+
+				/*
+			 	* For INSERT/UPDATE/DELETE Skip if we have specified only SELECT,
+			 	* otherwise drop through to handle like a SELECT.
+			 	*/
+				case T_InsertStmt:
+				case T_DeleteStmt:
+				case T_UpdateStmt:
+				{
+					if (ResourceSelectOnly)
+					{
+						takeLock = false;
+						break;
+					}
+				}
+
+				case T_SelectStmt:
+				case T_DeclareCursorStmt:
+				{
+					/*
+				 	* Setup the resource portal increments, ready to be added.
+					*/
+					incData.pid = MyProc->pid;
+					incData.increments[RES_COUNT_LIMIT] = 1;
+
+					if (gp_resqueue_memory_policy != RESQUEUE_MEMORY_POLICY_NONE)
+					{
+						Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_AUTO ||
+								gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_EAGER_FREE);
+
+						uint64 queryMemory = ResourceQueueGetQueryMemoryLimit(NULL, GetResQueueId());
+						Assert(queryMemory > 0);
+						if (gp_log_resqueue_memory)
+						{
+							elog(gp_resqueue_memory_log_level, "query requested %.0fKB", (double) queryMemory / 1024.0);
+						}
+
+						incData.increments[RES_MEMORY_LIMIT] = (Cost) queryMemory;
+					}
+					else 
+					{
+						Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_NONE);
+						incData.increments[RES_MEMORY_LIMIT] = (Cost) 0.0;				
+					}
+					takeLock = true;
+				}
+				break;
+
+				case T_CopyStmt:
+				{
+					incData.pid = MyProc->pid;
+					incData.increments[RES_COUNT_LIMIT] = 1;
+					incData.increments[RES_MEMORY_LIMIT] = (Cost) 0.0;
+
+					takeLock = true;
+				}
+				break;
+
+				/*
+				 * We do not want to lock any of these query types.
+				*/
+				default:
+				{
+
+					takeLock = false;
+				}
+				break;
+			}
+
+			if (takeLock)
+			{
+				ResLockPrelock(&incData);
+			}
+		}
+
 		/*
 		 * Set up a snapshot if parse analysis/planning will need one.
 		 */
@@ -1851,7 +1934,6 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 		 */
 		EndCommand(completionTag, dest);
 	}							/* end loop over parsetrees */
-
 	/*
 	 * Close down transaction statement, if one is open.
 	 */

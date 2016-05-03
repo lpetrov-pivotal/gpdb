@@ -3428,6 +3428,9 @@ CommitTransaction(void)
 	/* Close any open regular cursors */
 	AtCommit_Portals();
 
+	if (!ResourceQueueUseCost)
+		ResLockPreUnlock();
+
 	/* Perform any Resource Scheduler commit procesing. */
 	if (Gp_role == GP_ROLE_DISPATCH && ResourceScheduler)
 		AtCommit_ResScheduler();
@@ -3806,6 +3809,8 @@ PrepareTransaction(void)
 	/* Close any open regular cursors */
 	AtCommit_Portals();
 
+	if (!ResourceQueueUseCost)
+		ResLockPreUnlock();
 	/*
 	 * Let ON COMMIT management do its thing (must happen after closing
 	 * cursors, to avoid dangling-reference problems)
@@ -4100,6 +4105,9 @@ AbortTransaction(void)
 	AfterTriggerEndXact(false);
 	AtAbort_Portals();
 	AtAbort_ExtTables();
+
+	if (!ResourceQueueUseCost)
+		ResLockPreUnlock();
 
 	/* Perform any Resource Scheduler abort procesing. */
 	if (Gp_role == GP_ROLE_DISPATCH && ResourceScheduler)
