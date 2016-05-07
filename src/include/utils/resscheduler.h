@@ -171,6 +171,9 @@ extern bool ResDestroyQueue(Oid queueid);
 extern bool ResLockPortal(Portal portal, QueryDesc *qDesc);
 extern void ResUnLockPortal(Portal portal);
 
+extern bool ResLockSession();
+extern void ResUnLockSession();
+
 extern void ResCheckPortalType(Portal portal);
 extern Oid	GetResQueueForRole(Oid roleid);
 extern Oid	GetResQueueId(void);

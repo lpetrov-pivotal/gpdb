@@ -530,6 +530,104 @@ ResDestroyQueue(Oid queueid)
 	
 }
 
+bool ResLockSession()
+{
+	Oid         queueid;
+	LOCKTAG     tag;
+	int32       lockResult = 0;
+
+	ResPortalIncrement  incData;
+
+	queueid = GetResQueueId();
+
+	if (queueid == InvalidOid)
+		return false;
+
+	incData.pid = MyProc->pid;
+	incData.increments[RES_COUNT_LIMIT] = 1;
+	incData.increments[RES_COST_LIMIT] = 0;
+
+	if (gp_resqueue_memory_policy != RESQUEUE_MEMORY_POLICY_NONE)
+	{
+		Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_AUTO ||
+				gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_EAGER_FREE);
+
+		uint64 queryMemory = ResourceQueueGetQueryMemoryLimit(NULL, queueid);
+		Assert(queryMemory > 0);
+		if (gp_log_resqueue_memory)
+		{
+			elog(gp_resqueue_memory_log_level, "query requested %.0fKB", (double) queryMemory / 1024.0);
+		}
+
+		incData.increments[RES_MEMORY_LIMIT] = (Cost) queryMemory;
+	}
+	else
+	{
+		Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_NONE);
+		incData.increments[RES_MEMORY_LIMIT] = (Cost) 0.0;
+	}
+
+#ifdef RESLOCK_DEBUG
+	elog(DEBUG1, "acquire resource lock for queue %u)",
+					queueid);
+#endif
+
+	SET_LOCKTAG_RESOURCE_QUEUE(tag, queueid);
+
+	PG_TRY();
+	{
+		lockResult = ResLockAcquire(&tag, &incData);
+	}
+	PG_CATCH();
+	{
+		/*
+		 * We might have been waiting for a resource queue lock when we get
+		 * here. Calling ResLockRelease without calling ResLockWaitCancel will
+		 * cause the locallock to be cleaned up, but will leave the global
+		 * variable lockAwaited still pointing to the locallock hash
+		 * entry.
+		*/
+		ResLockWaitCancel();
+
+		/* Change status to no longer waiting for lock */
+		pgstat_report_waiting(PGBE_WAITING_NONE);
+
+		/* If we had acquired the resource queue lock, release it and clean up */
+		ResLockRelease(&tag, -1);
+
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	return true;
+}
+
+
+void ResUnLockSession()
+{
+	LOCKTAG tag;
+	Oid     queueid;
+
+	queueid = GetResQueueId();
+
+	/*
+	 * Check we have a valid queue before going any further.
+	 */
+	if (queueid == InvalidOid)
+		return;
+
+#ifdef RESLOCK_DEBUG
+	elog(DEBUG1, "release resource lock for queue %u (portal %u)",
+		queueid, portal->portalId);
+#endif
+	SET_LOCKTAG_RESOURCE_QUEUE(tag, queueid);
+
+	ResLockRelease(&tag, -1);
+
+	return;
+}
+
+
 /*
  * ResLockPortal -- get a resource lock for Portal execution.
  *
