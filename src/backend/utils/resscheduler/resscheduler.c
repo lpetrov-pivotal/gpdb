@@ -50,6 +50,8 @@ int		MaxResourcePortalsPerXact;				/* Max # tracked portals -
 bool	ResourceSelectOnly;						/* Only lock SELECT/DECLARE? */
 bool	ResourceCleanupIdleGangs;				/* Cleanup idle gangs? */
 
+bool	ResQueueEarlyLock = true;
+
 
 /*
  * Global variables

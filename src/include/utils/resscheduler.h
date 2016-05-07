@@ -29,6 +29,8 @@ extern int	MaxResourcePortalsPerXact;
 extern bool	ResourceSelectOnly;
 extern bool	ResourceCleanupIdleGangs;
 
+extern bool ResQueueEarlyLock;
+
 extern Oid MyQueueId; /* resource queue for current role. */
 
 
