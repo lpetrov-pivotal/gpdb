@@ -1140,6 +1140,7 @@ uint64 ResourceQueueGetQueryMemoryLimit(PlannedStmt *stmt, Oid queueId)
 	/** Assert that I do not hold lwlock */
 	Assert(!LWLockHeldExclusiveByMe(ResQueueLock));
 
+	bool  considerCostLimit = (stmt != NULL);
 	int64 resqLimitBytes = ResourceQueueGetMemoryLimit(queueId);
 
 	/**
@@ -1164,12 +1165,16 @@ uint64 ResourceQueueGetQueryMemoryLimit(PlannedStmt *stmt, Oid queueId)
 	Assert(resQueue);	
 	int numSlots = (int) ceil(resQueue->limits[RES_COUNT_LIMIT].threshold_value);
 	double costLimit = (double) resQueue->limits[RES_COST_LIMIT].threshold_value;
-	double planCost = stmt->planTree->total_cost;
-	
-	if (planCost < 1.0)
-		planCost = 1.0;
+	double planCost = 0;
 
-	Assert(planCost > 0.0);
+	if (considerCostLimit) {
+		planCost = stmt->planTree->total_cost;
+	
+		if (planCost < 1.0)
+			planCost = 1.0;
+
+		Assert(planCost > 0.0);
+	}
 	
 	if (gp_log_resqueue_memory)
 	{
@@ -1182,20 +1187,24 @@ uint64 ResourceQueueGetQueryMemoryLimit(PlannedStmt *stmt, Oid queueId)
 		numSlots = 1;
 	}
 	
-	if (costLimit < 0.0)
-	{
-		/** there is no cost limit set */
-		costLimit = planCost;
-	}
+	double minRatio = 1.0/ (double) numSlots;
 
-	double minRatio = minDouble( 1.0/ (double) numSlots, planCost / costLimit);
+	if (considerCostLimit) {
+		if (costLimit < 0.0)
+		{
+			/** there is no cost limit set */
+			costLimit = planCost;
+		}
+
+		minRatio = minDouble(minRatio, planCost / costLimit);
+	}
 	
 	minRatio = minDouble(minRatio, 1.0);
 
 	if (gp_log_resqueue_memory)
 	{
 		elog(gp_resqueue_memory_log_level, "slotratio: %0.3f, costratio: %0.3f, minratio: %0.3f",
-				1.0/ (double) numSlots, planCost / costLimit, minRatio);
+				1.0/ (double) numSlots, considerCostLimit ? planCost / costLimit : -1, minRatio);
 	}
 	
 	uint64 queryMem = (uint64) resqLimitBytes * minRatio;
