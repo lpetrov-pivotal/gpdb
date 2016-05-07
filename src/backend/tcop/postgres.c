@@ -1600,7 +1600,8 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 
 	QueryContext = CurrentMemoryContext;
 
-	ResLockSession();
+	if (ResQueueEarlyLock)
+		ResLockSession();
 	
 	/*
 	 * Do basic parsing of the query or queries (this should be safe even if
@@ -1855,7 +1856,8 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 		EndCommand(completionTag, dest);
 	}							/* end loop over parsetrees */
 
-	ResUnLockSession();
+	if (ResQueueEarlyLock)
+		ResUnLockSession();
 
 	/*
 	 * Close down transaction statement, if one is open.
