@@ -1216,7 +1216,7 @@ ResProcLockRemoveSelfAndWakeup(LOCK *lock)
 			}
 		} else {
 			incrementSet = malloc(sizeof(ResPortalIncrement));
-			memset(0x00, incrementSet, sizeof(ResPortalIncrement));
+			memset(incrementSet, 0x00, sizeof(ResPortalIncrement));
 			incrementSet->increments[RES_COUNT_LIMIT] = 1;
 			incrementSet->increments[RES_COST_LIMIT] = 0;
 			incrementSet->increments[RES_MEMORY_LIMIT] = ResourceQueueGetQueryMemoryLimit(NULL, GetResQueueId());
