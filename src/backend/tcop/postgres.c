@@ -96,6 +96,7 @@
 #include "cdb/cdbfilerep.h"
 #include "postmaster/primary_mirror_mode.h"
 #include "utils/vmem_tracker.h"
+#include "utils/resscheduler.h"
 
 extern int	optind;
 extern char *optarg;
@@ -1598,6 +1599,8 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 	oldcontext = MemoryContextSwitchTo(MessageContext);
 
 	QueryContext = CurrentMemoryContext;
+
+	ResLockSession();
 	
 	/*
 	 * Do basic parsing of the query or queries (this should be safe even if
@@ -1851,6 +1854,8 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 		 */
 		EndCommand(completionTag, dest);
 	}							/* end loop over parsetrees */
+
+	ResUnLockSession();
 
 	/*
 	 * Close down transaction statement, if one is open.
