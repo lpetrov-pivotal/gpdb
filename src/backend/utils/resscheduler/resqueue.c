@@ -657,16 +657,19 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
 
 	ResCleanUpLock(lock, proclock, hashcode, true);
 
-	/* 
-	 * Clean up the increment set. 
-	 */
-	if (!ResIncrementRemove(&portalTag))
+	if (!ResQueueEarlyLock)
 	{
-		LWLockRelease(ResQueueLock);
-		LWLockRelease(partitionLock);
+		/* 
+		 * Clean up the increment set. 
+		 */
+		if (!ResIncrementRemove(&portalTag))
+		{
+			LWLockRelease(ResQueueLock);
+			LWLockRelease(partitionLock);
 
-		elog(ERROR, "no increment to remove for portal id %u and pid %d", resPortalId, MyProc->pid);
-		/* not reached */
+			elog(ERROR, "no increment to remove for portal id %u and pid %d", resPortalId, MyProc->pid);
+			/* not reached */
+		}
 	}
 
 	LWLockRelease(ResQueueLock);
