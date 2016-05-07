@@ -258,7 +258,10 @@ ProcessQuery(Portal portal,
 		if (gp_resqueue_memory_policy != RESQUEUE_MEMORY_POLICY_NONE)
 			queryDesc->plannedstmt->query_mem = ResourceQueueGetQueryMemoryLimit(queryDesc->plannedstmt, portal->queueId);
 		
-		portal->holdingResLock = ResLockPortal(portal, queryDesc);
+		if (ResQueueEarlyLock)
+			portal->holdingResLock = true;
+		else
+			portal->holdingResLock = ResLockPortal(portal, queryDesc);
 	}
 
 	portal->status = PORTAL_ACTIVE;
