@@ -351,26 +351,27 @@ ResLockAcquire(LOCKTAG *locktag, ResPortalIncrement *incrementSet)
 			return LOCKACQUIRE_NOT_AVAIL;
 		}
 
-		/*
-		 * Otherwise, we are going to take a lock, Add an increment to the
-		 * increment hash for this process.
-		*/
-		incrementSet = ResIncrementAdd(incrementSet, proclock, owner);
-		if (!incrementSet)
-		{
-			lock->nRequested--;
-			lock->requested[lockmode]--;
-			Assert((lock->nRequested >= 0) && (lock->requested[lockmode] >= 0));
+	}
 
-			ResCleanUpLock(lock, proclock, hashcode, false);
+	/*
+	 * Otherwise, we are going to take a lock, Add an increment to the
+	 * increment hash for this process.
+	*/
+	incrementSet = ResIncrementAdd(incrementSet, proclock, owner);
+	if (!incrementSet)
+	{
+		lock->nRequested--;
+		lock->requested[lockmode]--;
+		Assert((lock->nRequested >= 0) && (lock->requested[lockmode] >= 0));
 
-			LWLockRelease(ResQueueLock);
-			LWLockRelease(partitionLock);
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of shared memory adding portal increments"),
-					 errhint("You may need to increase max_resource_portals_per_transaction.")));
-		}
+		ResCleanUpLock(lock, proclock, hashcode, false);
+
+		LWLockRelease(ResQueueLock);
+		LWLockRelease(partitionLock);
+		ereport(ERROR,
+				(errcode(ERRCODE_OUT_OF_MEMORY),
+				 errmsg("out of shared memory adding portal increments"),
+				 errhint("You may need to increase max_resource_portals_per_transaction.")));
 	}
 
 	/*
@@ -398,15 +399,12 @@ ResLockAcquire(LOCKTAG *locktag, ResPortalIncrement *incrementSet)
 
 		ResCleanUpLock(lock, proclock, hashcode, false);
 
-		if (ResourceQueueUseCost)
-		{
-			/* Kill off the increment. */
-			MemSet(&portalTag, 0, sizeof(ResPortalTag));
-			portalTag.pid = incrementSet->pid;
-			portalTag.portalId = incrementSet->portalId;
+		/* Kill off the increment. */
+		MemSet(&portalTag, 0, sizeof(ResPortalTag));
+		portalTag.pid = incrementSet->pid;
+		portalTag.portalId = ResourceQueueUseCost ? incrementSet->portalId : INVALID_PORTALID;
 
-			ResIncrementRemove(&portalTag);
-		}
+		ResIncrementRemove(&portalTag);
 
 		LWLockRelease(ResQueueLock);
 		LWLockRelease(partitionLock);
@@ -461,15 +459,12 @@ ResLockAcquire(LOCKTAG *locktag, ResPortalIncrement *incrementSet)
 
 			ResCleanUpLock(lock, proclock, hashcode, false);
 
-			if (ResourceQueueUseCost)
-			{
-				/* Kill off the increment. */
-				MemSet(&portalTag, 0, sizeof(ResPortalTag));
-				portalTag.pid = incrementSet->pid;
-				portalTag.portalId = incrementSet->portalId;
+			/* Kill off the increment. */
+			MemSet(&portalTag, 0, sizeof(ResPortalTag));
+			portalTag.pid = incrementSet->pid;
+			portalTag.portalId = ResourceQueueUseCost ? incrementSet->portalId : INVALID_PORTALID;
 
-				ResIncrementRemove(&portalTag);
-			}
+			ResIncrementRemove(&portalTag);
 
 			LWLockRelease(ResQueueLock);
 			LWLockRelease(partitionLock);
@@ -647,37 +642,22 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
 	
 	LWLockAcquire(ResQueueLock, LW_EXCLUSIVE);
 
-	if (ResourceQueueUseCost)
+	incrementSet = ResIncrementFind(&portalTag);
+	if (!incrementSet)
 	{
-		incrementSet = ResIncrementFind(&portalTag);
-		if (!incrementSet)
+
+		ResLockUpdateLimit(lock, proclock, &single_activeData, false);
+
+		elog(DEBUG1, "Resource queue %d: increment not found on unlock", locktag->locktag_field1);
+		if (proclock->nLocks == 0)
 		{
-
-			ResLockUpdateLimit(lock, proclock, &single_activeData, false);
-
-			elog(DEBUG1, "Resource queue %d: increment not found on unlock", locktag->locktag_field1);
-			if (proclock->nLocks == 0)
-			{
-				RemoveLocalLock(locallock);
-			}
-			/* no need to do the wakeups */
-			ResCleanUpLock(lock, proclock, hashcode, true);
-			LWLockRelease(ResQueueLock);
-			LWLockRelease(partitionLock);
-			return false;			
+			RemoveLocalLock(locallock);
 		}
-	}
-	else
-	{
+		/* no need to do the wakeups */
+		ResCleanUpLock(lock, proclock, hashcode, true);
 		LWLockRelease(ResQueueLock);
-		single_activeData.pid = MyProc->pid;
-		single_activeData.portalId = resPortalId;
-		single_activeData.increments[RES_COUNT_LIMIT] = 1;
-		single_activeData.increments[RES_MEMORY_LIMIT] = ResQueueMemoryLimit;
-
-		incrementSet = &single_activeData;
-
-		LWLockAcquire(ResQueueLock, LW_EXCLUSIVE);
+		LWLockRelease(partitionLock);
+		return false;			
 	}
 
 	/*
@@ -695,19 +675,16 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
 
 	ResCleanUpLock(lock, proclock, hashcode, true);
 
-	if (ResourceQueueUseCost)
+	/* 
+	 * Clean up the increment set. 
+	 */
+	if (!ResIncrementRemove(&portalTag))
 	{
-		/* 
-		 * Clean up the increment set. 
-		 */
-		if (!ResIncrementRemove(&portalTag))
-		{
-			LWLockRelease(ResQueueLock);
-			LWLockRelease(partitionLock);
+		LWLockRelease(ResQueueLock);
+		LWLockRelease(partitionLock);
 
-			elog(ERROR, "no increment to remove for portal id %u and pid %d", resPortalId, MyProc->pid);
-			/* not reached */
-		}
+		elog(ERROR, "no increment to remove for portal id %u and pid %d", resPortalId, MyProc->pid);
+		/* not reached */
 	}
 
 	LWLockRelease(ResQueueLock);
@@ -1242,28 +1219,16 @@ ResProcLockRemoveSelfAndWakeup(LOCK *lock)
 
 		MemSet(&portalTag, 0, sizeof(ResPortalTag));
 		portalTag.pid = proc->pid;
-		portalTag.portalId = proc->waitPortalId;
+		portalTag.portalId = ResourceQueueUseCost ? proc->waitPortalId : INVALID_PORTALID;
 
-		if (ResourceQueueUseCost)
+		incrementSet = ResIncrementFind(&portalTag);
+		if (!incrementSet)
 		{
-			incrementSet = ResIncrementFind(&portalTag);
-			if (!incrementSet)
-			{
-				hashcode = LockTagHashCode(&(lock->tag));
-				partitionLock = LockHashPartitionLock(hashcode);
+			hashcode = LockTagHashCode(&(lock->tag));
+			partitionLock = LockHashPartitionLock(hashcode);
 
-				LWLockRelease(partitionLock);
-				elog(ERROR, "no increment data for  portal id %u and pid %d", proc->waitPortalId, proc->pid);
-			}
-		}
-		else
-		{
-			LWLockRelease(ResQueueLock);
-			incData.increments[RES_COUNT_LIMIT] = 1;
-			incData.increments[RES_MEMORY_LIMIT] = ResourceQueueGetQueryMemoryLimit(NULL, GetResQueueId());
-			LWLockAcquire(ResQueueLock, LW_EXCLUSIVE);
-
-			incrementSet = &incData;
+			LWLockRelease(partitionLock);
+			elog(ERROR, "no increment data for  portal id %u and pid %d", proc->waitPortalId, proc->pid);
 		}
 
 		/*
@@ -1373,7 +1338,7 @@ ResRemoveFromWaitQueue(PGPROC *proc, uint32 hashcode)
 	 */
 	MemSet(&portalTag, 0, sizeof(ResPortalTag));
 	portalTag.pid = MyProc->pid;
-	portalTag.portalId = MyProc->waitPortalId;
+	portalTag.portalId = ResourceQueueUseCost ? MyProc->waitPortalId : INVALID_PORTALID;
 
 	LWLockAcquire(ResQueueLock, LW_EXCLUSIVE);
 	ResIncrementRemove(&portalTag);
@@ -1544,7 +1509,7 @@ ResIncrementAdd(ResPortalIncrement *incSet, PROCLOCK *proclock, ResourceOwner ow
 	/*  Set up the key.*/
 	MemSet(&portaltag, 0, sizeof(ResPortalTag));
 	portaltag.pid = incSet->pid;
-	portaltag.portalId = incSet->portalId;
+	portaltag.portalId = ResourceQueueUseCost ? incSet->portalId : INVALID_PORTALID;
 
 	/* Add (or find) the value. */
 	incrementSet = (ResPortalIncrement *)
@@ -1623,7 +1588,7 @@ ResIncrementRemove(ResPortalTag *portaltag)
 	bool				found;
 
 	Assert(LWLockHeldExclusiveByMe(ResQueueLock));
-	
+
 	incrementSet = (ResPortalIncrement *)
 		hash_search(ResPortalIncrementHash, (void *)portaltag, HASH_REMOVE, &found);
 
