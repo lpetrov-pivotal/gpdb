@@ -1136,7 +1136,7 @@ queueid, portal->portalId);
 			pgstat_report_waiting(PGBE_WAITING_NONE);
 
 			/* If we had acquired the resource queue lock, release it and clean up */
-			ResLockRelease(&tag, -1);
+			ResLockRelease(&tag, INVALID_PORTALID);
 
 			PG_RE_THROW();
 		}
@@ -1171,6 +1171,6 @@ ResLockPreUnlock()
 			queueid);
 	#endif
 
-		ResLockRelease(&tag, -1);
+		ResLockRelease(&tag, INVALID_PORTALID);
 	}
 }

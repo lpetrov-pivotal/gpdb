@@ -1731,6 +1731,8 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 				 	* Setup the resource portal increments, ready to be added.
 					*/
 					incData.pid = MyProc->pid;
+					// Setup with INVALID_PORTALID as in this case we have one increment per session, not per portal
+					incData.portalId = INVALID_PORTALID;
 					incData.increments[RES_COUNT_LIMIT] = 1;
 
 					if (gp_resqueue_memory_policy != RESQUEUE_MEMORY_POLICY_NONE)
@@ -1759,6 +1761,8 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 				case T_CopyStmt:
 				{
 					incData.pid = MyProc->pid;
+					// Setup with INVALID_PORTALID as in this case we have one increment per session, not per portal
+					incData.portalId = INVALID_PORTALID;
 					incData.increments[RES_COUNT_LIMIT] = 1;
 					incData.increments[RES_MEMORY_LIMIT] = (Cost) 0.0;
 
