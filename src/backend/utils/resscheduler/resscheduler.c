@@ -1064,6 +1064,7 @@ ResHandleUtilityStmt(Portal portal, Node *stmt)
 	if (Gp_role == GP_ROLE_DISPATCH
 		&& ResourceScheduler
 		&& (!ResourceSelectOnly)
+		&& ResourceQueueUseCost
 		&& !superuser())
 	{
 		Assert(!LWLockHeldExclusiveByMe(ResQueueLock));
