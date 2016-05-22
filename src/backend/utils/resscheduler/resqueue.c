@@ -1174,7 +1174,6 @@ ResProcLockRemoveSelfAndWakeup(LOCK *lock)
 	PGPROC		*proc;
 	uint32		hashcode;
 	LWLockId	partitionLock;
-	ResPortalIncrement	incData;
 
 	int			status;
 
