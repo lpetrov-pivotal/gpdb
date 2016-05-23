@@ -551,8 +551,6 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
 	ResPortalIncrement	*incrementSet;
 	ResPortalTag		portalTag;
 
-	ResPortalIncrement	single_activeData;
-
 	/* Check the lock method bits. */
 	Assert(locktag->locktag_lockmethodid == RESOURCE_LOCKMETHOD);
 
@@ -645,9 +643,6 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
 	incrementSet = ResIncrementFind(&portalTag);
 	if (!incrementSet)
 	{
-
-		ResLockUpdateLimit(lock, proclock, &single_activeData, false);
-
 		elog(DEBUG1, "Resource queue %d: increment not found on unlock", locktag->locktag_field1);
 		if (proclock->nLocks == 0)
 		{
@@ -1174,7 +1169,6 @@ ResProcLockRemoveSelfAndWakeup(LOCK *lock)
 	PGPROC		*proc;
 	uint32		hashcode;
 	LWLockId	partitionLock;
-	ResPortalIncrement	incData;
 
 	int			status;
 
