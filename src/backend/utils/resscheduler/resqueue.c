@@ -546,7 +546,6 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
 	uint32			hashcode;
 	LWLockId		partitionLock;
 	ResourceOwner	owner;
-	uint64	ResQueueMemoryLimit;
 
 	ResPortalIncrement	*incrementSet;
 	ResPortalTag		portalTag;
@@ -586,8 +585,6 @@ ResLockRelease(LOCKTAG *locktag, uint32 resPortalId)
 
 		return false;
 	}
-
-	ResQueueMemoryLimit = ResourceQueueGetQueryMemoryLimit(NULL,GetResQueueId());
 
 	hashcode = locallock->hashcode;
 
