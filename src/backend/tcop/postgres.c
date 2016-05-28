@@ -1706,6 +1706,7 @@ exec_simple_query(const char *query_string, const char *seqServerHost, int seqSe
 		/* Check if resource scheduling is enabled and process accordingly */
 		if (Gp_role == GP_ROLE_DISPATCH && !superuser() && ResourceScheduler && !ResourceQueueUseCost)
 		{
+			memset(&incData, 0x00, sizeof(incData));
 			switch (nodeTag(parsetree))
 			{
 

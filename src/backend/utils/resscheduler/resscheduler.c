@@ -559,6 +559,7 @@ ResLockPortal(Portal portal, QueryDesc *qDesc)
 	 */
 	if (queueid != InvalidOid)
 	{
+		memset(&incData, 0x00, sizeof(incData));
 
 		/*
 		 * Check the source tag to see if the original statement is suitable for
@@ -774,6 +775,7 @@ ResLockUtilityPortal(Portal portal, float4 ignoreCostLimit)
 		/*
 		 * Setup the resource portal increments, ready to be added.
 		 */
+		memset(&incData, 0x00, sizeof(incData));
 		incData.pid = MyProc->pid;
 		incData.portalId = portal->portalId;
 		incData.increments[RES_COUNT_LIMIT] = 1;
